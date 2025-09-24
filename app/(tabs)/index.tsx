@@ -53,6 +53,38 @@ const PREFERRED_APPS: Record<
   drive: { androidPackage: "com.google.android.apps.docs", iosScheme: "googledrive://" },
 };
 
+async function promptOpenPdf(uri: string) {
+  Alert.alert(
+    "PDF Created",
+    "Your PDF has been saved. Do you want to open it with another app?",
+    [
+      {
+        text: "Dismiss",
+        style: "cancel",
+      },
+      {
+        text: "Open",
+        onPress: async () => {
+          try {
+            const canShare = await Sharing.isAvailableAsync();
+            if (canShare) {
+              await Sharing.shareAsync(uri, {
+                mimeType: "application/pdf",
+                UTI: "com.adobe.pdf", // iOS compatibility
+              });
+            } else {
+              Alert.alert("Not supported", "Opening with external apps is not available on this device.");
+            }
+          } catch (err) {
+            console.error("Error opening PDF:", err);
+            Alert.alert("Error", "Could not open the PDF.");
+          }
+        },
+      },
+    ]
+  );
+}
+
 export default function DashboardScreen({ navigation }: any) {
   const [locale, setLocale] = useState<keyof typeof locales>("en");
   const [langModalVisible, setLangModalVisible] = useState(false);
@@ -194,15 +226,7 @@ export default function DashboardScreen({ navigation }: any) {
 
       setRecentFilesState((prev) => [newFile, ...prev.filter((f) => f.uri !== dest)]);
       
-      Alert.alert(
-        'PDF saved',
-        `Saved to app folder: ${newFile.name}`,
-        [
-          { text: 'Dismiss', style: 'cancel' },
-          { text: 'Open', onPress: () => openWithChooser(newFile.uri) },
-        ],
-        { cancelable: true }
-      );
+      promptOpenPdf(dest);
 
       return dest;
     } catch (e: any) {
