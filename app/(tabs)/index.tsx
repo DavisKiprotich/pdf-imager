@@ -23,6 +23,7 @@ import * as Print from "expo-print";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as IntentLauncher from "expo-intent-launcher";
+import { CLOUDCONVERT_API_KEY } from "@env";
 
 const Container = styled(SafeAreaView)`flex:1;background-color:#fff;`;
 const Header = styled.View`flex-direction:row;justify-content:space-between;align-items:center;padding:16px;`;
@@ -52,6 +53,87 @@ const PREFERRED_APPS: Record<
   adobe: { androidPackage: "com.adobe.reader", iosScheme: "acrobat://" },
   drive: { androidPackage: "com.google.android.apps.docs", iosScheme: "googledrive://" },
 };
+
+// ===== CLOUDCONVERT HELPERS =====
+
+async function uploadToCloudConvert(uri, fileName) {
+  const uploadResponse = await fetch("https://api.cloudconvert.com/v2/import/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${CLOUDCONVERT_API_KEY}` },
+  });
+
+  const uploadData = await uploadResponse.json();
+
+  // ✅ Handle both new and old API response formats
+  const formInfo = uploadData?.data?.result?.form || uploadData?.data?.form;
+  if (!formInfo?.url) {
+    console.log("Upload data:", uploadData);
+    throw new Error("Invalid CloudConvert upload response. Check API key or plan.");
+  }
+
+  const uploadUrl = formInfo.url;
+  const uploadParams = formInfo.parameters || {};
+
+  const formData = new FormData();
+  Object.keys(uploadParams).forEach((k) => formData.append(k, uploadParams[k]));
+  formData.append("file", {
+    uri,
+    name: fileName,
+    type: "application/octet-stream",
+  });
+
+  const res = await fetch(uploadUrl, { method: "POST", body: formData });
+  if (!res.ok) throw new Error("File upload failed: " + res.statusText);
+
+  return uploadData;
+}
+
+async function createConversionJob(inputOperation, fromType, toType) {
+  const jobResponse = await fetch("https://api.cloudconvert.com/v2/jobs", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${CLOUDCONVERT_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      tasks: {
+        import_file: inputOperation,
+        convert: {
+          operation: "convert",
+          input: "import_file",
+          input_format: fromType,
+          output_format: toType,
+        },
+        export_file: {
+          operation: "export/url",
+          input: "convert",
+        },
+      },
+    }),
+  });
+
+  if (!jobResponse.ok) throw new Error("Failed to create job");
+  return jobResponse.json();
+}
+
+async function fetchConvertedFile(jobId) {
+  const response = await fetch(`https://api.cloudconvert.com/v2/jobs/${jobId}`, {
+    headers: { Authorization: `Bearer ${CLOUDCONVERT_API_KEY}` },
+  });
+  const job = await response.json();
+  const exportTask = job.data.tasks.find(
+    (t) => t.operation === "export/url" && t.status === "finished"
+  );
+  const fileUrl = exportTask?.result?.files?.[0]?.url;
+  if (!fileUrl) throw new Error("No converted file found");
+
+  const ext = fileUrl.split(".").pop();
+  const localUri = FileSystem.documentDirectory + `converted_${Date.now()}.${ext}`;
+  await FileSystem.downloadAsync(fileUrl, localUri);
+
+  return localUri;
+}
+
 
 async function promptOpenPdf(uri: string) {
   Alert.alert(
@@ -254,15 +336,76 @@ export default function DashboardScreen({ navigation }: any) {
       const result: any = await ImagePicker.launchCameraAsync({ quality: 0.8 });
       if (result.canceled) return;
       const uri = result.assets?.[0]?.uri;
-      if (uri) await convertUrisToPdf([uri]);
+      if (uri) {
+        Alert.alert(
+          "Convert to PDF",
+          "Do you want to convert this photo to a PDF?",
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+            {
+              text: "Convert",
+              onPress: async () => {
+                await convertUrisToPdf([uri]);
+              },
+            },
+          ]
+        );
+      }
     } catch (err: any) {
       Alert.alert("Camera error", err?.message ?? String(err));
     }
   };
 
-  const handleSelectPdf = async () => {
-    Alert.alert("Not supported in Expo Go", "PDF → Images requires a custom native build.");
-  };
+  // CloudConvert PDF ↔ DOCX Conversion
+const handleSelectPdf = async (direction = "pdfToWord") => {
+  try {
+    const pick = await DocumentPicker.getDocumentAsync({
+      type: direction === "pdfToWord" ? "application/pdf" : [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword"
+      ],
+    });
+    if (pick.canceled || !pick.assets?.length) return;
+
+    const { uri, name } = pick.assets[0];
+    const fromType = direction === "pdfToWord" ? "pdf" : "docx";
+    const toType = direction === "pdfToWord" ? "docx" : "pdf";
+
+    Alert.alert("Uploading...", "Please wait while the file uploads.");
+    const upload = await uploadToCloudConvert(uri, name);
+
+    Alert.alert("Converting...", `${fromType.toUpperCase()} → ${toType.toUpperCase()}`);
+    const jobData = await createConversionJob(upload.data.result, fromType, toType);
+
+    const jobId = jobData.data.id;
+    Alert.alert("Processing...", "Waiting for conversion to complete.");
+
+    // Poll the job status until it's done
+    let convertedFile;
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      try {
+        convertedFile = await fetchConvertedFile(jobId);
+        if (convertedFile) break;
+      } catch (_) {}
+    }
+
+    if (!convertedFile) {
+      Alert.alert("Timeout", "Conversion took too long or failed.");
+      return;
+    }
+
+    Alert.alert("Conversion Complete", `Saved file to: ${convertedFile}`);
+    await Sharing.shareAsync(convertedFile);
+
+  } catch (err) {
+    console.error("Conversion error:", err);
+    Alert.alert("Error", err.message || "Failed to convert file.");
+  }
+};
 
   async function deleteFile(file: RecentFile) {
     try {
@@ -296,7 +439,7 @@ export default function DashboardScreen({ navigation }: any) {
   async function onSharePressed() {
     if (!selectedFile) return;
     setFileOptionsVisible(false);
-    await shareFile(selectedFile.uri, selectedFile.name);
+await shareFile(selectedFile.uri, selectedFile.name);
   }
 
   function onDeletePressed() {
@@ -328,7 +471,14 @@ export default function DashboardScreen({ navigation }: any) {
               <TouchableOpacity onPress={(e)=>{e.stopPropagation(); handleTakePhoto();}}><Feather name="camera" size={24} color="#4CAF50" /></TouchableOpacity>
             </View>
           </Card>
-          <Card onPress={handleSelectPdf}><CardText>{t.pdfToImages}</CardText><Text style={{ color: "#4CAF50", fontWeight: "600" }}>{t.selectPdf}</Text></Card>
+          <Card onPress={() => handleSelectPdf("pdfToWord")}>
+            <CardText>PDF to Word</CardText>
+            <Text style={{ color: "#4CAF50", fontWeight: "600" }}>Select PDF</Text>
+          </Card>
+          <Card onPress={() => handleSelectPdf("wordToPdf")}>
+            <CardText>Word to PDF</CardText>
+            <Text style={{ color: "#4CAF50", fontWeight: "600" }}>Select Word</Text>
+          </Card>
         </Section>
 
         <Section>
