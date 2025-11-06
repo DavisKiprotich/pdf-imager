@@ -54,84 +54,119 @@ const PREFERRED_APPS: Record<
   drive: { androidPackage: "com.google.android.apps.docs", iosScheme: "googledrive://" },
 };
 
-// ===== CLOUDCONVERT HELPERS =====
+// ===== CLOUDCONVERT HELPERS (IMPROVED) =====
 
-async function uploadToCloudConvert(uri, fileName) {
-  const uploadResponse = await fetch("https://api.cloudconvert.com/v2/import/upload", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${CLOUDCONVERT_API_KEY}` },
-  });
+const CLOUDCONVERT_API = "https://api.cloudconvert.com/v2";
 
-  const uploadData = await uploadResponse.json();
-
-  // ✅ Handle both new and old API response formats
-  const formInfo = uploadData?.data?.result?.form || uploadData?.data?.form;
-  if (!formInfo?.url) {
-    console.log("Upload data:", uploadData);
-    throw new Error("Invalid CloudConvert upload response. Check API key or plan.");
-  }
-
-  const uploadUrl = formInfo.url;
-  const uploadParams = formInfo.parameters || {};
-
-  const formData = new FormData();
-  Object.keys(uploadParams).forEach((k) => formData.append(k, uploadParams[k]));
-  formData.append("file", {
-    uri,
-    name: fileName,
-    type: "application/octet-stream",
-  });
-
-  const res = await fetch(uploadUrl, { method: "POST", body: formData });
-  if (!res.ok) throw new Error("File upload failed: " + res.statusText);
-
-  return uploadData;
-}
-
-async function createConversionJob(inputOperation, fromType, toType) {
-  const jobResponse = await fetch("https://api.cloudconvert.com/v2/jobs", {
+async function createConversionJob(payload: any) {
+  // payload should be the jobs body (JSON)
+  const url = `${CLOUDCONVERT_API}/jobs`;
+  const res = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${CLOUDCONVERT_API_KEY}`,
+      "Authorization": `Bearer ${CLOUDCONVERT_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      tasks: {
-        import_file: inputOperation,
-        convert: {
-          operation: "convert",
-          input: "import_file",
-          input_format: fromType,
-          output_format: toType,
-        },
-        export_file: {
-          operation: "export/url",
-          input: "convert",
-        },
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
-  if (!jobResponse.ok) throw new Error("Failed to create job");
-  return jobResponse.json();
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+
+  if (!res.ok) {
+    console.error("CloudConvert create job failed:", res.status, json);
+    // bubble up a helpful error including server body
+    throw new Error(`Failed to create job (${res.status}): ${JSON.stringify(json)}`);
+  }
+
+  return json;
 }
 
-async function fetchConvertedFile(jobId) {
-  const response = await fetch(`https://api.cloudconvert.com/v2/jobs/${jobId}`, {
-    headers: { Authorization: `Bearer ${CLOUDCONVERT_API_KEY}` },
-  });
-  const job = await response.json();
-  const exportTask = job.data.tasks.find(
-    (t) => t.operation === "export/url" && t.status === "finished"
-  );
-  const fileUrl = exportTask?.result?.files?.[0]?.url;
-  if (!fileUrl) throw new Error("No converted file found");
+/**
+ * Handles uploading a file according to the import task response.
+ * It supports both `form` presigned upload and `url` direct upload shapes.
+ */
+async function uploadFileForJob(importTask: any, fileUri: string) {
+  if (!importTask) throw new Error("Missing import task info");
 
-  const ext = fileUrl.split(".").pop();
-  const localUri = FileSystem.documentDirectory + `converted_${Date.now()}.${ext}`;
-  await FileSystem.downloadAsync(fileUrl, localUri);
+  const formInfo = importTask.result?.form ?? null;
 
-  return localUri;
+  if (formInfo && formInfo.url && formInfo.parameters) {
+    // presigned form upload (S3 style)
+    const formData = new FormData();
+    Object.entries(formInfo.parameters).forEach(([k, v]) => {
+      formData.append(k, v as any);
+    });
+    formData.append("file", {
+      uri: fileUri,
+      name: (fileUri.split("/").pop() || "upload.tmp"),
+      type: "application/octet-stream", // Generic type
+    } as any);
+
+    const upRes = await fetch(formInfo.url, { method: "POST", body: formData });
+    if (!upRes.ok) {
+      const t = await upRes.text();
+      console.error("Upload presigned failed:", upRes.status, t);
+      throw new Error(`Upload failed: ${upRes.statusText || t}`);
+    }
+    return true;
+  }
+
+  const directUploadUrl = importTask.result?.url ?? null;
+  if (directUploadUrl) {
+    const fileData = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const upRes = await fetch(directUploadUrl, {
+      method: "PUT",
+      body: fileData, // The body for a PUT upload is just the file content
+    });
+    if (!upRes.ok) {
+      const t = await upRes.text();
+      console.error("Direct upload failed:", upRes.status, t);
+      throw new Error(`Direct upload failed: ${upRes.statusText || t}`);
+    }
+    return true;
+  }
+
+  console.error("Unknown import task shape:", importTask);
+  throw new Error("Unsupported import task shape from CloudConvert. See console for details.");
+}
+
+
+async function pollJobUntilFinished(jobId: string): Promise<any> {
+  for (let i = 0; i < 20; i++) { // Poll for up to ~2 minutes
+    const response = await fetch(`${CLOUDCONVERT_API}/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${CLOUDCONVERT_API_KEY}` },
+    });
+    if (!response.ok) throw new Error("Failed to fetch job status");
+
+    const job = await response.json();
+    const jobStatus = job.data?.status;
+
+    if (jobStatus === "finished") {
+      return job;
+    } else if (jobStatus === "error") {
+      const failedTask = job.data.tasks.find(t => t.status === 'error');
+      throw new Error(`Conversion failed: ${failedTask?.message || 'Unknown error'}`);
+    }
+    
+    await new Promise((r) => setTimeout(r, 6000)); // Wait 6 seconds before next poll
+  }
+  throw new Error("Conversion timed out.");
+}
+
+async function downloadExportedFile(finishedJob: any): Promise<string> {
+    const exportTask = finishedJob.data.tasks.find(
+        (t: any) => t.operation === "export/url" && t.status === "finished"
+    );
+    const fileUrl = exportTask?.result?.files?.[0]?.url;
+    if (!fileUrl) throw new Error("No converted file found in job result");
+
+    const filename = exportTask?.result?.files?.[0]?.filename ?? `converted_${Date.now()}`;
+    const localUri = FileSystem.documentDirectory + filename;
+    
+    await FileSystem.downloadAsync(fileUrl, localUri);
+    return localUri;
 }
 
 
@@ -140,26 +175,19 @@ async function promptOpenPdf(uri: string) {
     "PDF Created",
     "Your PDF has been saved. Do you want to open it with another app?",
     [
-      {
-        text: "Dismiss",
-        style: "cancel",
-      },
+      { text: "Dismiss", style: "cancel" },
       {
         text: "Open",
         onPress: async () => {
           try {
-            const canShare = await Sharing.isAvailableAsync();
-            if (canShare) {
-              await Sharing.shareAsync(uri, {
-                mimeType: "application/pdf",
-                UTI: "com.adobe.pdf", // iOS compatibility
-              });
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
             } else {
-              Alert.alert("Not supported", "Opening with external apps is not available on this device.");
+              Alert.alert("Not supported", "Sharing is not available on this device.");
             }
           } catch (err) {
-            console.error("Error opening PDF:", err);
-            Alert.alert("Error", "Could not open the PDF.");
+            console.error("Error sharing PDF:", err);
+            Alert.alert("Error", "Could not share the PDF.");
           }
         },
       },
@@ -182,8 +210,8 @@ export default function DashboardScreen({ navigation }: any) {
 
   type RecentFile = { id: string; name: string; uri: string; size?: number; createdAt?: number };
 
-  const DOC_DIR = ((FileSystem as any).documentDirectory as string) ?? "";
-  const CACHE_DIR = ((FileSystem as any).cacheDirectory as string) ?? DOC_DIR;
+  const DOC_DIR = FileSystem.documentDirectory ?? "";
+  const CACHE_DIR = FileSystem.cacheDirectory ?? DOC_DIR;
   const APP_PDF_FOLDER = `${DOC_DIR}pdfconverter/`;
 
   const [recentFilesState, setRecentFilesState] = useState<RecentFile[]>([]);
@@ -191,39 +219,17 @@ export default function DashboardScreen({ navigation }: any) {
   useEffect(() => { loadRecentFilesFromFolder(); }, []);
 
   async function openWithChooser(uri: string) {
-    if (!uri) {
-      Alert.alert('File missing', 'No file URI available to open.');
-      return;
-    }
-
-    if (Platform.OS === 'android' && (FileSystem as any).getContentUriAsync) {
-      try {
-        const contentUri = await (FileSystem as any).getContentUriAsync(uri);
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(contentUri, { dialogTitle: 'Open with...' });
-          return;
-        }
-        await Linking.openURL(contentUri);
-        return;
-      } catch (err) {
-        console.warn('getContentUriAsync failed, falling back to shareAsync:', err);
-      }
-    }
-
+    if (!uri) return Alert.alert('File missing', 'No file URI available to open.');
     try {
-      if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, { dialogTitle: 'Open with...' });
-        return;
-      }
     } catch (err) {
-      console.warn('expo-sharing failed:', err);
-    }
-
-    try {
-      await Linking.openURL(uri);
-    } catch (err) {
-      console.error('Open fallback failed', err);
-      Alert.alert('Open failed', 'No app could open this file.');
+        console.error('Sharing failed', err);
+        try {
+            await Linking.openURL(uri);
+        } catch (linkErr) {
+            console.error('Open fallback failed', linkErr);
+            Alert.alert('Open failed', 'No app could open this file.');
+        }
     }
   }
 
@@ -243,9 +249,8 @@ export default function DashboardScreen({ navigation }: any) {
         names.map(async (name: string) => {
           const uri = `${APP_PDF_FOLDER}${name}`;
           try {
-            const info = await FileSystem.getInfoAsync(uri);
-            const modTime = (info as any).modificationTime ?? Date.now();
-            return { id: `${name}-${modTime}`, name, uri, size: (info as any).size, createdAt: modTime } as RecentFile;
+            const info = await FileSystem.getInfoAsync(uri, { size: true });
+            return { id: `${name}-${info.modificationTime}`, name, uri, size: info.size, createdAt: info.modificationTime } as RecentFile;
           } catch {
             return { id: `${name}-${Date.now()}`, name, uri, createdAt: Date.now() } as RecentFile;
           }
@@ -258,21 +263,11 @@ export default function DashboardScreen({ navigation }: any) {
     }
   }
 
-  function arrayBufferToBase64(buffer: ArrayBuffer) {
-    if (typeof Buffer !== "undefined") return Buffer.from(buffer).toString("base64");
-    let binary = "";
-    const bytes = new Uint8Array(buffer);
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    if (typeof (global as any).btoa === "function") return (global as any).btoa(binary);
-    throw new Error("No base64 encoder available");
-  }
-
   async function ensureFileUri(uri: string) {
     if (!uri || !uri.startsWith("content://")) return uri;
     try {
       const dest = `${CACHE_DIR}tmp_${Date.now()}.tmp`;
-      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' } as any);
-      await FileSystem.writeAsStringAsync(dest, b64, { encoding: "base64" } as any);
+      await FileSystem.copyAsync({ from: uri, to: dest });
       return dest;
     } catch (e) {
       console.warn("ensureFileUri failed, using original content uri", e);
@@ -286,7 +281,7 @@ export default function DashboardScreen({ navigation }: any) {
         imageUris.map(async (uri) => {
           if (!uri) throw new Error("Missing URI");
           const fileUri = await ensureFileUri(uri);
-          const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: "base64" } as any);
+          const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
           const ext = fileUri.split(".").pop()?.toLowerCase() ?? "jpg";
           const mime = ext === "png" ? "image/png" : "image/jpeg";
           return `<div style="page-break-inside: avoid; margin-bottom:8px;"><img src="data:${mime};base64,${base64}" style="width:100%;height:auto;display:block;"/></div>`;
@@ -300,10 +295,9 @@ export default function DashboardScreen({ navigation }: any) {
 
       await FileSystem.moveAsync({ from: pdfUri, to: dest });
 
-      const info = await FileSystem.getInfoAsync(dest);
+      const info = await FileSystem.getInfoAsync(dest, {size: true});
       const newFile: RecentFile = {
-        id: `${name}-${(info as any).modificationTime ?? Date.now()}`,
-        name, uri: dest, size: (info as any).size, createdAt: (info as any).modificationTime ?? Date.now(),
+        id: `${name}-${info.modificationTime}`, name, uri: dest, size: info.size, createdAt: info.modificationTime,
       };
 
       setRecentFilesState((prev) => [newFile, ...prev.filter((f) => f.uri !== dest)]);
@@ -321,7 +315,7 @@ export default function DashboardScreen({ navigation }: any) {
   const handleSelectImages = async () => {
     try {
       await ImagePicker.requestMediaLibraryPermissionsAsync();
-      const result: any = await ImagePicker.launchImageLibraryAsync({ mediaTypes: (ImagePicker as any).MediaTypeOptions.Images, allowsMultipleSelection: true, quality: 0.8 });
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, quality: 0.8 });
       if (result.canceled) return;
       const uris = (result.assets ?? []).map((a: any) => a.uri).filter(Boolean);
       if (uris.length > 0) await convertUrisToPdf(uris);
@@ -333,79 +327,77 @@ export default function DashboardScreen({ navigation }: any) {
   const handleTakePhoto = async () => {
     try {
       await ImagePicker.requestCameraPermissionsAsync();
-      const result: any = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
       if (result.canceled) return;
       const uri = result.assets?.[0]?.uri;
       if (uri) {
-        Alert.alert(
-          "Convert to PDF",
-          "Do you want to convert this photo to a PDF?",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "Convert",
-              onPress: async () => {
-                await convertUrisToPdf([uri]);
-              },
-            },
-          ]
-        );
+        Alert.alert("Convert to PDF", "Do you want to convert this photo to a PDF?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Convert", onPress: async () => { await convertUrisToPdf([uri]); } },
+        ]);
       }
     } catch (err: any) {
       Alert.alert("Camera error", err?.message ?? String(err));
     }
   };
 
-  // CloudConvert PDF ↔ DOCX Conversion
-const handleSelectPdf = async (direction = "pdfToWord") => {
-  try {
-    const pick = await DocumentPicker.getDocumentAsync({
-      type: direction === "pdfToWord" ? "application/pdf" : [
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/msword"
-      ],
-    });
-    if (pick.canceled || !pick.assets?.length) return;
+  // REFACTORED CloudConvert PDF ↔ DOCX Conversion
+  const handleSelectAndConvert = async (direction: "pdfToWord" | "wordToPdf") => {
+    try {
+      const fromType = direction === "pdfToWord" ? "pdf" : "docx";
+      const toType = direction === "pdfToWord" ? "docx" : "pdf";
 
-    const { uri, name } = pick.assets[0];
-    const fromType = direction === "pdfToWord" ? "pdf" : "docx";
-    const toType = direction === "pdfToWord" ? "docx" : "pdf";
+      const pickerResult = await DocumentPicker.getDocumentAsync({
+        type: fromType === 'pdf' ? 'application/pdf' : [
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+          'application/msword', // .doc
+        ]
+      });
 
-    Alert.alert("Uploading...", "Please wait while the file uploads.");
-    const upload = await uploadToCloudConvert(uri, name);
+      // IMPORTANT: DocumentPicker returns { type: 'success'|'cancel', uri, name, size }
+      if (pickerResult.type !== "success") return;
+      const assetUri = pickerResult.uri;
+      const assetName = pickerResult.name ?? `file_${Date.now()}`;
 
-    Alert.alert("Converting...", `${fromType.toUpperCase()} → ${toType.toUpperCase()}`);
-    const jobData = await createConversionJob(upload.data.result, fromType, toType);
+      // (1) Build the job payload
+      const jobPayload = {
+        "tasks": {
+          "import-1": { "operation": "import/upload" },
+          "convert-1": {
+            "operation": "convert",
+            "input": "import-1",
+            "engine": "office",
+            "output_format": toType,
+          },
+          "export-1": { "operation": "export/url", "input": "convert-1" },
+        }
+      };
 
-    const jobId = jobData.data.id;
-    Alert.alert("Processing...", "Waiting for conversion to complete.");
+      Alert.alert("Creating conversion job...", "Please wait.");
+      const job = await createConversionJob(jobPayload);
+      const importTask = job.data.tasks.find((t: any) => t.name === 'import-1' || t.operation === 'import/upload');
+      if (!importTask) throw new Error("Missing import task from CloudConvert response");
 
-    // Poll the job status until it's done
-    let convertedFile;
-    for (let i = 0; i < 15; i++) {
-      await new Promise((r) => setTimeout(r, 4000));
-      try {
-        convertedFile = await fetchConvertedFile(jobId);
-        if (convertedFile) break;
-      } catch (_) {}
+      // (2) Upload file for the job
+      Alert.alert("Uploading file...", assetName);
+      const fileUri = await ensureFileUri(assetUri);
+      await uploadFileForJob(importTask, fileUri);
+
+      // (3) Poll, download, save & share
+      Alert.alert("Processing file...", "This may take a moment.");
+      const finishedJob = await pollJobUntilFinished(job.data.id);
+      Alert.alert("Downloading converted file...");
+      const localFileUri = await downloadExportedFile(finishedJob);
+
+      await loadRecentFilesFromFolder();
+      Alert.alert("Success!", `File converted and saved.`);
+      await Sharing.shareAsync(localFileUri, { dialogTitle: 'Share your converted file' });
+
+    } catch (err: any) {
+      console.error("Conversion failed:", err);
+      Alert.alert("Conversion Error", err.message || String(err));
     }
-
-    if (!convertedFile) {
-      Alert.alert("Timeout", "Conversion took too long or failed.");
-      return;
-    }
-
-    Alert.alert("Conversion Complete", `Saved file to: ${convertedFile}`);
-    await Sharing.shareAsync(convertedFile);
-
-  } catch (err) {
-    console.error("Conversion error:", err);
-    Alert.alert("Error", err.message || "Failed to convert file.");
-  }
-};
+  };
 
   async function deleteFile(file: RecentFile) {
     try {
@@ -439,7 +431,7 @@ const handleSelectPdf = async (direction = "pdfToWord") => {
   async function onSharePressed() {
     if (!selectedFile) return;
     setFileOptionsVisible(false);
-await shareFile(selectedFile.uri, selectedFile.name);
+    await shareFile(selectedFile.uri, selectedFile.name);
   }
 
   function onDeletePressed() {
@@ -471,11 +463,11 @@ await shareFile(selectedFile.uri, selectedFile.name);
               <TouchableOpacity onPress={(e)=>{e.stopPropagation(); handleTakePhoto();}}><Feather name="camera" size={24} color="#4CAF50" /></TouchableOpacity>
             </View>
           </Card>
-          <Card onPress={() => handleSelectPdf("pdfToWord")}>
+          <Card onPress={() => handleSelectAndConvert("pdfToWord")}>
             <CardText>PDF to Word</CardText>
             <Text style={{ color: "#4CAF50", fontWeight: "600" }}>Select PDF</Text>
           </Card>
-          <Card onPress={() => handleSelectPdf("wordToPdf")}>
+          <Card onPress={() => handleSelectAndConvert("wordToPdf")}>
             <CardText>Word to PDF</CardText>
             <Text style={{ color: "#4CAF50", fontWeight: "600" }}>Select Word</Text>
           </Card>
@@ -484,18 +476,22 @@ await shareFile(selectedFile.uri, selectedFile.name);
         <Section>
           <SectionTitle>{t.recentFiles}</SectionTitle>
           <View>
-            {recentFilesState.length === 0 ? <Text style={{ color: "#666" }}>No recent files</Text> : recentFilesState.map((file) => (
-              <FileRow key={file.id} onPress={() => onTapFile(file)}>
-                <FileRowLeft>
-                  <FileThumb><Text style={{ fontSize: 10 }}>PDF</Text></FileThumb>
-                  <View>
-                    <Text>{file.name}</Text>
-                    <Text style={{ fontSize: 12, color: "#666" }}>{file.size ? formatBytes(file.size) : ""}</Text>
-                  </View>
-                </FileRowLeft>
-                <TouchableOpacity onPress={() => onTapFile(file)}><Ionicons name="ellipsis-horizontal" size={20} color="#000" /></TouchableOpacity>
-              </FileRow>
-            ))}
+            {recentFilesState.length === 0 ? (
+              <Text style={{ color: "#666" }}>No recent files</Text>
+            ) : (
+              recentFilesState.map((file) => (
+                <FileRow key={file.id} onPress={() => onTapFile(file)}>
+                  <FileRowLeft>
+                    <FileThumb><Text style={{ fontSize: 10 }}>{file.name.split('.').pop()?.toUpperCase()}</Text></FileThumb>
+                    <View>
+                      <Text numberOfLines={1} style={{ maxWidth: 250 }}>{file.name}</Text>
+                      <Text style={{ fontSize: 12, color: "#666" }}>{file.size ? formatBytes(file.size) : ""}</Text>
+                    </View>
+                  </FileRowLeft>
+                  <TouchableOpacity onPress={() => onTapFile(file)}><Ionicons name="ellipsis-horizontal" size={20} color="#000" /></TouchableOpacity>
+                </FileRow>
+              ))
+            )}
           </View>
         </Section>
 

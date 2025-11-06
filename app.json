@@ -2,7 +2,11 @@
   "expo": {
     "name": "pdf-imager",
     "slug": "pdf-imager",
-    "platforms": ["android", "ios"],
+    "scheme": "pdfimager",
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "splash": {
@@ -11,7 +15,12 @@
       "backgroundColor": "#ffffff"
     },
     "android": {
-            "package": "com.github.DavisKiprotich.pdfimager"
-          }
+      "package": "com.github.DavisKiprotich.pdfimager"
+    },
+    "plugins": [
+      [
+        "expo-router"
+      ]
+    ]
   }
 }
