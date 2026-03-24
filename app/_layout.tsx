@@ -1,24 +1,56 @@
+// app/_layout.tsx
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
+import React from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { LanguageProvider } from './LanguageContext';
+import { SubscriptionProvider, useSubscription } from './SubscriptionContext';
+import OnboardingLanguage from './onboarding-language';
+import Paywall from './paywall';
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
-export default function RootLayout() {
+function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const sub = useSubscription();
 
+  // Show loading while reading persisted state from disk
+  if (sub.isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color="#4F46E5" />
+      </View>
+    );
+  }
+
+  // Flow: Native Splash → Language Selector → Paywall → App
+  // Gate 1: Language not selected → show language picker
+  if (!sub.isLanguageSelected) {
+    return <OnboardingLanguage />;
+  }
+
+  // Gate 2: No trial OR limit reached → show paywall
+  if (!sub.isTrialStarted || sub.isLimitReached) {
+    return <Paywall />;
+  }
+
+  // Gate 3: All clear → show the main app
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <LanguageProvider>
+      <SubscriptionProvider>
+        <RootLayoutNav />
+      </SubscriptionProvider>
+    </LanguageProvider>
   );
 }

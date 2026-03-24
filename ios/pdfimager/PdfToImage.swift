@@ -16,14 +16,22 @@ class PdfToImage: NSObject {
       }
 
       var outPaths: [String] = []
+      var errors: [String] = []
+
       for i in 0..<doc.pageCount {
-        guard let page = doc.page(at: i) else { continue }
+        guard let page = doc.page(at: i) else {
+          errors.append("Page \(i+1): Missing")
+          continue
+        }
         let pageRect = page.bounds(for: .mediaBox)
         let scale: CGFloat = UIScreen.main.scale
         let size = CGSize(width: pageRect.width * scale, height: pageRect.height * scale)
 
         UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
-        guard let context = UIGraphicsGetCurrentContext() else { continue }
+        guard let context = UIGraphicsGetCurrentContext() else {
+          errors.append("Page \(i+1): Context failed")
+          continue
+        }
         context.saveGState()
         context.translateBy(x: 0, y: size.height)
         context.scaleBy(x: 1.0, y: -1.0)
@@ -33,22 +41,28 @@ class PdfToImage: NSObject {
 
         guard let image = UIGraphicsGetImageFromCurrentImageContext(), let data = image.pngData() else {
           UIGraphicsEndImageContext()
+          errors.append("Page \(i+1): Rendering failed")
           continue
         }
         UIGraphicsEndImageContext()
 
-        let fileName = "pdf_page_\(Int(Date().timeIntervalSince1970))_\(i+1).png"
+        let pdfName = URL(fileURLWithPath: pdfUri as String).lastPathComponent.replacingOccurrences(of: ".pdf", with: "", options: .caseInsensitive)
+        let fileName = "\(pdfName)_page_\(i+1)_\(Int(Date().timeIntervalSince1970)).png"
         let outPath = (outputDir as String) + "/" + fileName
         let outURL = URL(fileURLWithPath: outPath)
         do {
           try data.write(to: outURL)
           outPaths.append(outURL.absoluteString) // file://...
         } catch {
-          // skip page on error
+          errors.append("Page \(i+1): Write failed - \(error.localizedDescription)")
         }
       }
 
-      resolver(outPaths)
+      if outPaths.isEmpty && !errors.isEmpty {
+        rejecter("PDF_CONVERSION_ERROR", "All pages failed: \(errors.joined(separator: ", "))", nil)
+      } else {
+        resolver(outPaths)
+      }
     }
   }
 

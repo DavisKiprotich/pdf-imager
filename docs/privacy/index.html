@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - PDF Imager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #4F46E5; --text: #1E293B; --subtext: #64748B; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; margin: 0; padding: 0; }
+        .container { max-width: 800px; margin: 0 auto; padding: 60px 24px; }
+        .nav { position: sticky; top: 0; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); padding: 15px 0; border-bottom: 1px solid #E2E8F0; z-index: 100; text-align: center; }
+        .nav a { color: var(--subtext); text-decoration: none; margin: 0 10px; font-size: 14px; font-weight: 600; transition: 0.2s; }
+        .nav a:hover, .nav a.active { color: var(--primary); }
+        h1 { font-size: 40px; font-weight: 800; color: #0F172A; text-align: center; margin-bottom: 10px; letter-spacing: -1px; }
+        h2 { font-size: 24px; font-weight: 800; margin-top: 40px; color: var(--primary); border-bottom: 2px solid #EEF2FF; padding-bottom: 8px; }
+        p { margin-bottom: 20px; color: #334155; }
+        .lang-section { display: none; margin-top: 40px; }
+        .lang-section.active { display: block; }
+        .footer { text-align: center; margin-top: 80px; color: var(--subtext); font-size: 14px; padding-bottom: 40px; }
+    </style>
+</head>
+<body>
+
+<div class="nav">
+    <a href="#" onclick="showLang('en')" class="active" id="btn-en">English</a>
+    <a href="#" onclick="showLang('fr')" id="btn-fr">Français</a>
+    <a href="#" onclick="showLang('pt')" id="btn-pt">Português</a>
+    <a href="#" onclick="showLang('es')" id="btn-es">Español</a>
+    <a href="#" onclick="showLang('de')" id="btn-de">Deutsch</a>
+    <a href="#" onclick="showLang('ar')" id="btn-ar">العربية</a>
+    <a href="#" onclick="showLang('zh')" id="btn-zh">中文</a>
+    <a href="#" onclick="showLang('ru')" id="btn-ru">Русский</a>
+    <a href="#" onclick="showLang('ja')" id="btn-ja">日本語</a>
+</div>
+
+<div class="container">
+    <h1>Privacy Policy</h1>
+    <p style="text-align: center; color: var(--subtext);">Last updated: March 24, 2026</p>
+
+    <!-- English -->
+    <div id="en" class="lang-section active">
+        <h2>1. Data Collection</h2>
+        <p>PDF Imager is designed with privacy as a priority. We do not collect, store, or sell your personal data. All files processed (Images, PDFs, Word docs) remain on your device unless sent to our processing partner, CloudConvert, for conversion.</p>
+        <h2>2. Third-Party Services</h2>
+        <p>For complex conversions (PDF to Word, Word to PDF), we use CloudConvert. Files are temporarily uploaded to their secure servers, processed, and then deleted immediately after conversion. No permanent copy is kept.</p>
+        <h2>3. Local Storage</h2>
+        <p>Your conversion history and files are stored strictly on your local device. Deleting the app will remove all associated data permanently.</p>
+        <h2>4. Subscriptions</h2>
+        <p>Subscription data is managed entirely by Apple App Store or Google Play Store. We do not have access to your payment information.</p>
+    </div>
+
+    <!-- French -->
+    <div id="fr" class="lang-section">
+        <h2>1. Collecte de données</h2>
+        <p>PDF Imager est conçu avec la confidentialité comme priorité. Nous ne collectons, ne stockons ni ne vendons vos données personnelles. Tous les fichiers traités restent sur votre appareil sauf s'ils sont envoyés à CloudConvert pour conversion.</p>
+        <h2>2. Services tiers</h2>
+        <p>Pour les conversions complexes, nous utilisons CloudConvert. Les fichiers sont temporairement téléchargés sur leurs serveurs sécurisés et supprimés immédiatement après la conversion.</p>
+    </div>
+
+    <!-- Portuguese -->
+    <div id="pt" class="lang-section">
+        <h2>1. Coleta de Dados</h2>
+        <p>O PDF Imager foi projetado com a privacidade como prioridade. Não coletamos, armazenamos ou vendemos seus dados pessoais. Todos os arquivos permanecem no seu dispositivo.</p>
+    </div>
+
+    <!-- Spanish -->
+    <div id="es" class="lang-section">
+        <h2>1. Recolección de Datos</h2>
+        <p>PDF Imager está diseñado con la privacidad como prioridad. No recopilamos, almacenamos ni vendemos sus datos personales.</p>
+    </div>
+
+    <!-- German -->
+    <div id="de" class="lang-section">
+        <h2>1. Datenerhebung</h2>
+        <p>PDF Imager wurde mit Datenschutz als Priorität entwickelt. Wir sammeln, speichern oder verkaufen keine Ihrer persönlichen Daten.</p>
+    </div>
+
+    <!-- Arabic -->
+    <div id="ar" class="lang-section" dir="rtl">
+        <h2>١. جمع البيانات</h2>
+        <p>تم تصميم محول PDF مع وضع الخصوصية كأولوية. نحن لا نجمع بياناتك الشخصية أو نخزنها أو نبيعها.</p>
+    </div>
+
+    <!-- Chinese -->
+    <div id="zh" class="lang-section">
+        <h2>1. 数据收集</h2>
+        <p>PDF Imager 以隐私为设计重点。我们不收集、存储或出售您的个人数据。</p>
+    </div>
+
+    <!-- Russian -->
+    <div id="ru" class="lang-section">
+        <h2>1. Сбор данных</h2>
+        <p>PDF Imager разработан с приоритетом на конфиденциальность. Мы не собираем, не храним и не продаем ваши личные данные.</p>
+    </div>
+
+    <!-- Japanese -->
+    <div id="ja" class="lang-section">
+        <h2>1. データ収集</h2>
+        <p>PDF Imagerはプライバシーを最優先に設計されています。お客様の個人データを収集、保存、または販売することはありません。</p>
+    </div>
+
+    <div class="footer">
+        &copy; 2026 PDF Imager. Built with respect for your privacy.
+    </div>
+</div>
+
+<script>
+    function showLang(lang) {
+        document.querySelectorAll('.lang-section').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
+        document.getElementById(lang).classList.add('active');
+        document.getElementById('btn-' + lang).classList.add('active');
+        window.scrollTo(0, 0);
+    }
+</script>
+
+</body>
+</html>
