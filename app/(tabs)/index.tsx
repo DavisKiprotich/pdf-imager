@@ -1,18 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  Modal,
-  TouchableOpacity,
-  Alert,
-  Platform,
-  Linking,
-  StyleSheet,
-  FlatList,
-  NativeModules,
-} from "react-native";
+import { View, Text, ScrollView, Modal, TouchableOpacity, Alert, Platform, Linking, StyleSheet, FlatList, NativeModules, Image } from "react-native";
 import styled from "styled-components/native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -48,6 +36,14 @@ const ModalContainer = styled.View`flex: 1; justify-content: flex-end; backgroun
 const ModalContent = styled.View`background-color: #fff; padding: 24px; border-top-left-radius: 32px; border-top-right-radius: 32px; width: 100%;`;
 const LanguageItem = styled.TouchableOpacity`flex-direction: row; justify-content: space-between; align-items: center; padding: 16px; margin-bottom: 4px; border-radius: 14px;`;
 const LoadingOverlay = styled.View`position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.85); justify-content: center; align-items: center; z-index: 999;`;
+const SubscriptionOverlay = styled.View`
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #fff;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  z-index: 1000;
+`;
 
 interface RecentFile {
   id: string;
@@ -102,7 +98,7 @@ export default function Index() {
       await incrementCount();
       setIsProcessing(false);
       loadRecentFilesFromFolder();
-      Alert.alert("Success", "PDF created!");
+      Alert.alert(t.success || "Success", t.pdfCreated || "PDF created!");
     }
   };
 
@@ -116,14 +112,17 @@ export default function Index() {
         await incrementCount(); 
         setIsProcessing(false); 
         loadRecentFilesFromFolder();
-        Alert.alert("Success", "Conversion complete (Demo)");
+        Alert.alert(t.success || "Success", t.conversionComplete || "Conversion complete!");
     }, 3000);
   };
 
   return (
     <Container>
       <Header>
-        <Title>{t.appName}</Title>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Image source={require("../../assets/images/icon.png")} style={{ width: 36, height: 36, borderRadius: 10, marginRight: 10 }} />
+          <Title>{t.appName}</Title>
+        </View>
         <RightIcons>
           <LanguageButton onPress={() => setLangModalVisible(true)}>
              <Ionicons name="language" size={18} color="#4f46e5" style={{ marginRight: 6 }} />
@@ -135,7 +134,9 @@ export default function Index() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {!isSubscribed && (
            <View style={{ backgroundColor: '#EEF2FF', padding: 12, borderRadius: 12, margin: 24, marginBottom: 8 }}>
-             <Text style={{ fontSize: 13, color: '#4F46E5', fontWeight: '700' }}>{t.appName} Free: {conversionCount}/3 Documents</Text>
+             <Text style={{ fontSize: 13, color: '#4F46E5', fontWeight: '700' }}>
+               {t.freeTrialBanner.replace('{{count}}', conversionCount.toString())}
+             </Text>
            </View>
         )}
         <Section>
@@ -187,10 +188,30 @@ export default function Index() {
 
       {isProcessing && (
         <LoadingOverlay>
-          <View style={{ backgroundColor: '#fff', padding: 32, borderRadius: 24, alignItems: 'center' }}>
-            <Ionicons name="sync" size={48} color="#4f46e5" /><Text style={{ fontSize: 18, fontWeight: '700', marginTop: 16 }}>{t.processing}</Text>
+          <View style={{ backgroundColor: '#fff', padding: 32, borderRadius: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 15 }}>
+            <Image source={require("../../assets/images/icon.png")} style={{ width: 64, height: 64, borderRadius: 18 }} />
+            <View style={{ marginTop: 16, alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#1e293b' }}>{t.processing}</Text>
+              <Text style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{t.pleaseWait || "Please wait..."}</Text>
+            </View>
           </View>
         </LoadingOverlay>
+      )}
+
+      {isLimitReached && (
+        <SubscriptionOverlay>
+          <Image source={require("../../assets/images/icon.png")} style={{ width: 80, height: 80, borderRadius: 24, marginBottom: 24 }} />
+          <Title style={{ textAlign: 'center', marginBottom: 12 }}>{t.premiumTitle}</Title>
+          <Text style={{ textAlign: 'center', color: '#64748B', fontSize: 16, lineHeight: 24, marginBottom: 40 }}>
+            {t.unlockFeaturesContent}
+          </Text>
+          <TouchableOpacity 
+            onPress={() => router.push("/paywall" as any)}
+            style={{ backgroundColor: '#4F46E5', paddingVertical: 18, paddingHorizontal: 40, borderRadius: 20, width: '100%', alignItems: 'center', shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 15, elevation: 8 }}
+          >
+            <Text style={{ color: '#fff', fontSize: 17, fontWeight: '800' }}>{t.subscribeNow}</Text>
+          </TouchableOpacity>
+        </SubscriptionOverlay>
       )}
     </Container>
   );

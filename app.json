@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "pdf-imager",
+    "name": "PDF Imager — PDF to Image & Word",
     "slug": "pdf-imager",
+    "version": "1.0.0",
     "scheme": "pdfimager",
     "platforms": [
       "android",
@@ -14,13 +15,42 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "ios": {
+      "bundleIdentifier": "com.karoti.pdfimager",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "PDF Imager needs access to your gallery so you can convert images into high-quality PDF documents.",
+        "NSCameraUsageDescription": "Access to the camera allows you to scan documents directly into PDFs.",
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads and content to you.",
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPITypeUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPITypeFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": ["DDA9.1"]
+          }
+        ]
+      }
+    },
     "android": {
-      "package": "com.github.DavisKiprotich.pdfimager"
+      "package": "com.karoti.pdfimager",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#4F46E5"
+      },
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA",
+        "NOTIFICATIONS"
+      ]
     },
     "plugins": [
-      [
-        "expo-router"
-      ]
+      "expo-router"
     ]
   }
 }

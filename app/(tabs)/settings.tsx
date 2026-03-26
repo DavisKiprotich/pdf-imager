@@ -1,11 +1,11 @@
 // app/(tabs)/settings.tsx
 import React from "react";
-import { View, Text, ScrollView, TouchableOpacity, Alert, Platform, Share, Linking } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Alert, Platform, Linking } from "react-native";
 import styled from "styled-components/native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLanguage } from "../LanguageContext";
-import * as FileSystem from "expo-file-system/legacy";
+import { useSubscription } from "../SubscriptionContext";
 
 const Container = styled(SafeAreaView)`flex:1;background-color:#f8fafc;`;
 const Header = styled.View`padding:20px 24px;`;
@@ -16,20 +16,25 @@ const SettingRow = styled.TouchableOpacity`flex-direction:row;align-items:center
 const IconBox = styled.View`width:40px;height:40px;border-radius:10px;align-items:center;justify-content:center;margin-right:12px;`;
 const Label = styled.Text`flex:1;font-weight:600;color:#1E293B;font-size:15px;`;
 
-const APP_PDF_FOLDER = `${FileSystem.documentDirectory}pdfconverter/`;
-
 export default function Settings() {
   const { t, locale } = useLanguage();
+  const { resetAllData } = useSubscription();
 
-  const handleClearCache = async () => {
-    Alert.alert(t.clearCache, "Are you sure? This will remove all temporary conversion files.", [
+  const handleManageSubscription = () => {
+    // 1. Apple App Store Subscriptions
+    const subUrl = Platform.OS === 'ios' 
+      ? "https://apps.apple.com/account/subscriptions" 
+      : "https://play.google.com/store/account/subscriptions";
+    
+    Linking.openURL(subUrl).catch(() => Alert.alert("Error", "Could not open store link."));
+  };
+
+  const handleFactoryReset = async () => {
+    Alert.alert(t.deleteAppData, "This will reset all app settings, history, and free trial status. This action is irreversible.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Confirm", style: "destructive", onPress: async () => {
-          try {
-            await FileSystem.deleteAsync(APP_PDF_FOLDER, { idempotent: true });
-            await FileSystem.makeDirectoryAsync(APP_PDF_FOLDER, { intermediates: true });
-            Alert.alert("Success", "Cache cleared.");
-          } catch (e) { Alert.alert("Error", String(e)); }
+      { text: "Delete Everything", style: "destructive", onPress: async () => {
+           await resetAllData();
+           Alert.alert("Reset Complete", "The app has been reset to factory settings.");
       }},
     ]);
   };
@@ -49,7 +54,7 @@ export default function Settings() {
         
         <Section>
           <SectionTitle>{t.manageSubscription}</SectionTitle>
-          <SettingRow onPress={() => Alert.alert(t.manageSubscription, "Subscription management would open here.")}>
+          <SettingRow onPress={handleManageSubscription}>
             <IconBox style={{ backgroundColor: '#F0F9FF' }}><Ionicons name="card-outline" size={20} color="#0EA5E9" /></IconBox>
             <Label>{t.manageSubscription}</Label>
             <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
@@ -69,21 +74,16 @@ export default function Settings() {
             <Text style={{ color: '#94A3B8', marginRight: 8, fontSize: 13 }}>{locale.toUpperCase()}</Text>
             <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
           </SettingRow>
-          <SettingRow onPress={handleClearCache}>
-            <IconBox style={{ backgroundColor: '#FFF7ED' }}><Ionicons name="trash-outline" size={20} color="#F97316" /></IconBox>
-            <Label>{t.clearCache}</Label>
-            <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
-          </SettingRow>
         </Section>
 
         <Section>
           <SectionTitle>LEGAL</SectionTitle>
-          <SettingRow onPress={() => openUrl("https://example.com/terms")}>
+          <SettingRow onPress={() => openUrl("https://daviskiprotich.github.io/pdf-imager.io/Terms/")}>
             <IconBox style={{ backgroundColor: '#F8FAFC' }}><Ionicons name="document-text-outline" size={20} color="#64748B" /></IconBox>
             <Label>{t.termsOfService}</Label>
             <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
           </SettingRow>
-          <SettingRow onPress={() => openUrl("https://example.com/privacy")}>
+          <SettingRow onPress={() => openUrl("https://daviskiprotich.github.io/pdf-imager.io/Privacy/")}>
             <IconBox style={{ backgroundColor: '#F8FAFC' }}><Ionicons name="shield-checkmark-outline" size={20} color="#64748B" /></IconBox>
             <Label>{t.privacyPolicy}</Label>
             <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
@@ -92,15 +92,14 @@ export default function Settings() {
 
         <Section>
           <SectionTitle>DANGER ZONE</SectionTitle>
-          <SettingRow onPress={() => Alert.alert(t.deleteAppData, "This will reset all app settings and history. This action is irreversible.", [{ text: "Cancel" }, { text: "Delete", style: "destructive" }])}>
+          <SettingRow onPress={handleFactoryReset}>
             <IconBox style={{ backgroundColor: '#FEF2F2' }}><Ionicons name="warning-outline" size={20} color="#EF4444" /></IconBox>
             <Label style={{ color: '#EF4444' }}>{t.deleteAppData}</Label>
           </SettingRow>
         </Section>
 
         <View style={{ padding: 40, alignItems: 'center' }}>
-          <Text style={{ color: '#94A3B8', fontSize: 13 }}>Build Version 1.0.0 (24)</Text>
-          <Text style={{ color: '#CBD5E1', fontSize: 11, marginTop: 4 }}>© 2026 PDF Converter</Text>
+          <Text style={{ color: '#CBD5E1', fontSize: 11, marginTop: 4 }}>© 2026 PDF Imager</Text>
         </View>
 
       </ScrollView>

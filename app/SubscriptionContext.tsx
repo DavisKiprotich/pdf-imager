@@ -1,8 +1,14 @@
 // app/SubscriptionContext.tsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { Platform } from 'react-native';
 import * as FileSystem from "expo-file-system/legacy";
+import Purchases, { PurchasesOffering, PurchasesPackage, CustomerInfo } from 'react-native-purchases';
 
 const ANALYTICS_FILE = `${FileSystem.documentDirectory}analytics.json`;
+const APP_FOLDER = `${FileSystem.documentDirectory}pdfconverter/`;
+
+const REVENUECAT_ANDROID_API_KEY = 'goog_sFucqcKKJdYAYxhIzyWoQggYaVJ';
+const REVENUECAT_IOS_API_KEY = 'YOUR_IOS_API_KEY_HERE';
 
 interface SubscriptionContextType {
   isSubscribed: boolean;
@@ -10,10 +16,12 @@ interface SubscriptionContextType {
   isTrialStarted: boolean;
   isLanguageSelected: boolean;
   isLoading: boolean;
-  subscribe: () => Promise<void>;
+  offerings: PurchasesOffering | null;
+  subscribe: (pkg: PurchasesPackage) => Promise<void>;
   startTrial: () => Promise<void>;
   incrementCount: () => Promise<void>;
   markLanguageSelected: () => Promise<void>;
+  resetAllData: () => Promise<void>;
   isLimitReached: boolean;
 }
 
@@ -25,70 +33,125 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [isTrialStarted, setIsTrialStarted] = useState(false);
   const [isLanguageSelected, setIsLanguageSelected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
+
+  const saveLocal = async (updates: any) => {
+    try {
+      const info = await FileSystem.getInfoAsync(ANALYTICS_FILE);
+      let next = { count: 0, isTrialStarted: false, isSubscribed: false, isLanguageSelected: false };
+      if (info.exists) {
+        const current = JSON.parse(await FileSystem.readAsStringAsync(ANALYTICS_FILE));
+        next = { ...current, ...updates };
+      } else {
+        next = { ...next, ...updates };
+      }
+      await FileSystem.writeAsStringAsync(ANALYTICS_FILE, JSON.stringify(next));
+    } catch (e) {}
+  };
+
+  const updateEntitlementStatus = useCallback((info: CustomerInfo) => {
+    const hasPremium = info.entitlements.active['premium'] !== undefined;
+    setIsSubscribed(hasPremium);
+    saveLocal({ isSubscribed: hasPremium });
+  }, []);
 
   useEffect(() => {
-    (async () => {
+    let isMounted = true;
+
+    async function init() {
       try {
+        // 1. Initial Local State
         const info = await FileSystem.getInfoAsync(ANALYTICS_FILE);
         if (info.exists) {
           const content = await FileSystem.readAsStringAsync(ANALYTICS_FILE);
           const data = JSON.parse(content);
-          setIsSubscribed(data.isSubscribed || false);
-          setConversionCount(data.count || 0);
-          setIsTrialStarted(data.isTrialStarted || false);
-          setIsLanguageSelected(data.isLanguageSelected || false);
+          if (isMounted) {
+            setConversionCount(data.count || 0);
+            setIsTrialStarted(data.isTrialStarted || false);
+            setIsLanguageSelected(data.isLanguageSelected || false);
+            setIsSubscribed(data.isSubscribed || false);
+          }
         }
-      } catch (e) { console.warn(e); }
-      finally { setIsLoading(false); }
-    })();
+
+        // 2. RevenueCat Security
+        // Check if Purchases is defined (native check)
+        if (Purchases && typeof Purchases.configure === 'function') {
+           if (Platform.OS === 'android') {
+             Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY });
+           } else if (Platform.OS === 'ios' && REVENUECAT_IOS_API_KEY !== 'YOUR_IOS_API_KEY_HERE') {
+             Purchases.configure({ apiKey: REVENUECAT_IOS_API_KEY });
+           }
+
+           const customerInfo = await Purchases.getCustomerInfo();
+           if (isMounted) updateEntitlementStatus(customerInfo);
+
+           Purchases.addCustomerInfoUpdateListener((info) => {
+             if (isMounted) updateEntitlementStatus(info);
+           });
+
+           const currentOfferings = await Purchases.getOfferings();
+           if (isMounted && currentOfferings.current) {
+             setOfferings(currentOfferings.current);
+           }
+        }
+      } catch (e) {
+        console.warn('Subscription init silent fail:', e);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    init();
+    return () => { isMounted = false; };
+  }, [updateEntitlementStatus]);
+
+  const subscribe = useCallback(async (pkg: PurchasesPackage) => {
+    try {
+      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      updateEntitlementStatus(customerInfo);
+    } catch (e: any) {
+      if (!e.userCancelled) throw e;
+    }
+  }, [updateEntitlementStatus]);
+
+  const startTrial = useCallback(async () => {
+    setIsTrialStarted(true);
+    await saveLocal({ isTrialStarted: true });
   }, []);
 
-  const save = async (updates: any) => {
-     const info = await FileSystem.getInfoAsync(ANALYTICS_FILE);
-     let current = { count: 0, isTrialStarted: false, isSubscribed: false, isLanguageSelected: false };
-     if (info.exists) {
-       current = JSON.parse(await FileSystem.readAsStringAsync(ANALYTICS_FILE));
-     }
-     const next = { ...current, ...updates };
-     await FileSystem.writeAsStringAsync(ANALYTICS_FILE, JSON.stringify(next));
-  }
+  const incrementCount = useCallback(async () => {
+    setConversionCount(prev => {
+      const next = prev + 1;
+      saveLocal({ count: next });
+      return next;
+    });
+  }, []);
 
-  const subscribe = async () => {
-    setIsSubscribed(true);
-    await save({ isSubscribed: true });
-  }
-
-  const startTrial = async () => {
-    setIsTrialStarted(true);
-    await save({ isTrialStarted: true });
-  }
-
-  const incrementCount = async () => {
-    const newCount = conversionCount + 1;
-    setConversionCount(newCount);
-    await save({ count: newCount });
-  }
-
-  const markLanguageSelected = async () => {
+  const markLanguageSelected = useCallback(async () => {
     setIsLanguageSelected(true);
-    await save({ isLanguageSelected: true });
-  }
+    await saveLocal({ isLanguageSelected: true });
+  }, []);
+
+  const resetAllData = useCallback(async () => {
+    try {
+      await FileSystem.deleteAsync(ANALYTICS_FILE, { idempotent: true });
+      setIsSubscribed(false);
+      setConversionCount(0);
+      setIsTrialStarted(false);
+      setIsLanguageSelected(false);
+    } catch (e) {}
+  }, []);
 
   const isLimitReached = !isSubscribed && conversionCount >= 3;
 
+  const contextValue = useMemo(() => ({
+    isSubscribed, conversionCount, isTrialStarted, isLanguageSelected,
+    isLoading, offerings, subscribe, startTrial, incrementCount,
+    markLanguageSelected, resetAllData, isLimitReached
+  }), [isSubscribed, conversionCount, isTrialStarted, isLanguageSelected, isLoading, offerings, subscribe, startTrial, incrementCount, markLanguageSelected, resetAllData, isLimitReached]);
+
   return (
-    <SubscriptionContext.Provider value={{ 
-      isSubscribed, 
-      conversionCount, 
-      isTrialStarted, 
-      isLanguageSelected,
-      isLoading,
-      subscribe, 
-      startTrial, 
-      incrementCount,
-      markLanguageSelected,
-      isLimitReached
-    }}>
+    <SubscriptionContext.Provider value={contextValue}>
       {children}
     </SubscriptionContext.Provider>
   );

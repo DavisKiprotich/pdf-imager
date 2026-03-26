@@ -14,7 +14,7 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const sub = useSubscription();
 
-  // Show loading while reading persisted state from disk
+  // 1. Show loading while reading persisted state from disk
   if (sub.isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
@@ -23,13 +23,14 @@ function RootLayoutNav() {
     );
   }
 
-  // Flow: Native Splash → Language Selector → Paywall → App
+  // 2. Flow: Native Splash → Language Selector → App Gated by Paywall
   // Gate 1: Language not selected → show language picker
   if (!sub.isLanguageSelected) {
     return <OnboardingLanguage />;
   }
 
   // Gate 2: No trial OR limit reached → show paywall
+  // (We return the component directly here for gating)
   if (!sub.isTrialStarted || sub.isLimitReached) {
     return <Paywall />;
   }
