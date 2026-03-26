@@ -62,6 +62,7 @@ export const locales = {
     conversionComplete: "Conversion Complete!",
     pleaseWait: "Please wait...",
     subscribeFor: "Subscribe for {{price}}",
+    error: "Error",
   },
   fr: {
     appName: "PDF Imager",
@@ -126,6 +127,7 @@ export const locales = {
     conversionComplete: "Conversion terminée !",
     pleaseWait: "Veuillez patienter...",
     subscribeFor: "S'abonner pour {{price}}",
+    error: "Erreur",
   },
   pt: {
     appName: "PDF Imager",
@@ -190,6 +192,7 @@ export const locales = {
     conversionComplete: "Conversão concluída!",
     pleaseWait: "Por favor, aguarde...",
     subscribeFor: "Assinar por {{price}}",
+    error: "Erro",
   },
   es: {
     appName: "PDF Imager",
@@ -254,6 +257,7 @@ export const locales = {
     conversionComplete: "¡Conversión completa!",
     pleaseWait: "Por favor, espere...",
     subscribeFor: "Suscribirse por {{price}}",
+    error: "Error",
   },
   de: {
     appName: "PDF Imager",
@@ -318,6 +322,7 @@ export const locales = {
     conversionComplete: "Konvertierung abgeschlossen!",
     pleaseWait: "Bitte warten...",
     subscribeFor: "Abonnieren für {{price}}",
+    error: "Fehler",
   },
   ar: {
     appName: "PDF Imager",
@@ -382,6 +387,7 @@ export const locales = {
     conversionComplete: "اكتمل التحويل!",
     pleaseWait: "يرجى الانتظار...",
     subscribeFor: "اشتراك مقابل {{price}}",
+    error: "خطأ",
   },
   zh: {
     appName: "PDF Imager",
@@ -446,6 +452,7 @@ export const locales = {
     conversionComplete: "转换完成！",
     pleaseWait: "请稍候...",
     subscribeFor: "以 {{price}} 订阅",
+    error: "错误",
   },
   ru: {
     appName: "PDF Imager",
@@ -510,6 +517,7 @@ export const locales = {
     conversionComplete: "Конверсия завершена!",
     pleaseWait: "Пожалуйста, подождите...",
     subscribeFor: "Подписаться за {{price}}",
+    error: "Ошибка",
   },
   ja: {
     appName: "PDF Imager",
@@ -574,5 +582,6 @@ export const locales = {
     conversionComplete: "変換が完了しました！",
     pleaseWait: "少々お待ちください...",
     subscribeFor: "{{price}} で購読する",
+    error: "エラー",
   }
 };

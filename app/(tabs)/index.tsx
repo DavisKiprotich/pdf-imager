@@ -77,12 +77,12 @@ export default function Index() {
   async function loadRecentFilesFromFolder() {
     try {
       const names = await FileSystem.readDirectoryAsync(APP_PDF_FOLDER);
-      const infos = await Promise.all(names.map(async (name) => {
+      const infos = await Promise.all(names.map(async (name: string) => {
           const uri = `${APP_PDF_FOLDER}${name}`;
           const info = await FileSystem.getInfoAsync(uri, { size: true } as any);
           return info.exists && !info.isDirectory ? { id: name, name, uri, size: info.size, createdAt: info.modificationTime } as RecentFile : null;
       }));
-      setRecentFilesState(infos.filter((f): f is RecentFile => f !== null).sort((a,b)=> (b.createdAt??0) - (a.createdAt??0)).slice(0, 5));
+      setRecentFilesState(infos.filter((f: any): f is RecentFile => f !== null).sort((a: any, b: any)=> (b.createdAt??0) - (a.createdAt??0)).slice(0, 5));
     } catch (e) { console.warn(e); }
   }
 
@@ -104,16 +104,109 @@ export default function Index() {
 
   const handleSelectAndConvert = async (toType: "docx" | "pdf") => {
     if (isLimitReached) return router.push("/paywall" as any);
-    const pickerResult = await DocumentPicker.getDocumentAsync({ type: toType === 'docx' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const pickerResult = await DocumentPicker.getDocumentAsync({ 
+      type: toType === 'docx' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      copyToCacheDirectory: true 
+    });
+    
     if (pickerResult.canceled || !pickerResult.assets) return;
+    const file = pickerResult.assets[0];
     setIsProcessing(true);
-    // CloudConvert logic simplified for brevity here, assuming it's already implemented correctly above
-    setTimeout(async () => { 
-        await incrementCount(); 
-        setIsProcessing(false); 
-        loadRecentFilesFromFolder();
+
+    try {
+        // Ensure folder exists
+        const dirInfo = await FileSystem.getInfoAsync(APP_PDF_FOLDER);
+        if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(APP_PDF_FOLDER, { intermediates: true });
+        }
+
+        // Create CloudConvert Job
+        const jobResponse = await fetch(`${CLOUDCONVERT_API}/jobs`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${CLOUDCONVERT_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                tasks: {
+                    "import-1": { "operation": "import/upload" },
+                    "task-1": {
+                        "operation": "convert",
+                        "input": "import-1",
+                        "output_format": toType
+                    },
+                    "export-1": {
+                        "operation": "export/url",
+                        "input": "task-1"
+                    }
+                }
+            })
+        });
+
+        const job = await jobResponse.json();
+        if (!job.data || !job.data.tasks) {
+            throw new Error(job.message || "Failed to create conversion job");
+        }
+
+        const uploadTask = job.data.tasks.find((t: any) => t.name === "import-1");
+        
+        // Upload file
+        const uploadFormData = new FormData();
+        Object.keys(uploadTask.result.form.parameters).forEach(key => {
+            uploadFormData.append(key, uploadTask.result.form.parameters[key]);
+        });
+        
+        // @ts-ignore
+        uploadFormData.append("file", {
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType || (toType === "docx" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        });
+
+        const uploadResponse = await fetch(uploadTask.result.form.url, {
+            method: "POST",
+            body: uploadFormData
+        });
+
+        if (!uploadResponse.ok) throw new Error("File upload failed");
+
+        // Poll for completion
+        let status = "";
+        let exportTask: any;
+        let attempts = 0;
+        
+        while (status !== "finished" && status !== "failed" && attempts < 30) {
+            await new Promise(r => setTimeout(r, 2000));
+            attempts++;
+            
+            const statusResponse = await fetch(`${CLOUDCONVERT_API}/jobs/${job.data.id}`, {
+                headers: { "Authorization": `Bearer ${CLOUDCONVERT_API_KEY}` }
+            });
+            const statusJob = await statusResponse.json();
+            exportTask = statusJob.data.tasks.find((t: any) => t.name === "export-1");
+            status = exportTask.status;
+            
+            if (status === "failed") throw new Error("Conversion failed on server");
+        }
+
+        if (status !== "finished") throw new Error("Conversion timed out");
+
+        // Download result
+        const downloadUrl = exportTask.result.files[0].url;
+        const downloadName = exportTask.result.files[0].filename;
+        const downloadUri = `${APP_PDF_FOLDER}${downloadName}`;
+        
+        await FileSystem.downloadAsync(downloadUrl, downloadUri);
+        
+        await incrementCount();
+        await loadRecentFilesFromFolder();
         Alert.alert(t.success || "Success", t.conversionComplete || "Conversion complete!");
-    }, 3000);
+    } catch (e: any) {
+        console.error("Conversion error:", e);
+        Alert.alert(t.error || "Error", e.message || "An error occurred during conversion.");
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   return (
