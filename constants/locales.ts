@@ -63,6 +63,7 @@ export const locales = {
     pleaseWait: "Please wait...",
     subscribeFor: "Subscribe for {{price}}",
     error: "Error",
+    confirmDelete: "Are you sure you want to delete this file?",
   },
   fr: {
     appName: "PDF Imager",
@@ -128,6 +129,7 @@ export const locales = {
     pleaseWait: "Veuillez patienter...",
     subscribeFor: "S'abonner pour {{price}}",
     error: "Erreur",
+    confirmDelete: "Voulez-vous vraiment supprimer ce fichier ?",
   },
   pt: {
     appName: "PDF Imager",
@@ -193,6 +195,7 @@ export const locales = {
     pleaseWait: "Por favor, aguarde...",
     subscribeFor: "Assinar por {{price}}",
     error: "Erro",
+    confirmDelete: "Tem certeza que deseja excluir este arquivo?",
   },
   es: {
     appName: "PDF Imager",
@@ -258,6 +261,7 @@ export const locales = {
     pleaseWait: "Por favor, espere...",
     subscribeFor: "Suscribirse por {{price}}",
     error: "Error",
+    confirmDelete: "¿Estás seguro de que deseas eliminar este archivo?",
   },
   de: {
     appName: "PDF Imager",
@@ -323,6 +327,7 @@ export const locales = {
     pleaseWait: "Bitte warten...",
     subscribeFor: "Abonnieren für {{price}}",
     error: "Fehler",
+    confirmDelete: "Sind Sie sicher, dass Sie diese Datei löschen möchten?",
   },
   ar: {
     appName: "PDF Imager",
@@ -388,6 +393,7 @@ export const locales = {
     pleaseWait: "يرجى الانتظار...",
     subscribeFor: "اشتراك مقابل {{price}}",
     error: "خطأ",
+    confirmDelete: "هل أنت متأكد أنك تريد حذف هذا الملف؟",
   },
   zh: {
     appName: "PDF Imager",
@@ -453,6 +459,7 @@ export const locales = {
     pleaseWait: "请稍候...",
     subscribeFor: "以 {{price}} 订阅",
     error: "错误",
+    confirmDelete: "您确定要删除此文件吗？",
   },
   ru: {
     appName: "PDF Imager",
@@ -518,6 +525,7 @@ export const locales = {
     pleaseWait: "Пожалуйста, подождите...",
     subscribeFor: "Подписаться за {{price}}",
     error: "Ошибка",
+    confirmDelete: "Вы уверены, что хотите удалить этот файл?",
   },
   ja: {
     appName: "PDF Imager",
@@ -583,5 +591,6 @@ export const locales = {
     pleaseWait: "少々お待ちください...",
     subscribeFor: "{{price}} で購読する",
     error: "エラー",
-  }
+    confirmDelete: "このファイルを削除してもよろしいですか？",
+  },
 };

@@ -14,6 +14,7 @@ import { CLOUDCONVERT_API_KEY } from "@env";
 import { useLanguage } from "../LanguageContext";
 import { useRouter } from "expo-router";
 import { useSubscription } from "../SubscriptionContext";
+import ActionBottomSheet from "../../components/ActionBottomSheet";
 
 const Container = styled(SafeAreaView)`flex: 1; background-color: #f8fafc;`;
 const Header = styled.View`flex-direction: row; justify-content: space-between; align-items: center; padding: 20px 24px;`;
@@ -63,6 +64,8 @@ export default function Index() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [recentFilesState, setRecentFilesState] = useState<RecentFile[]>([]);
   const [langModalVisible, setLangModalVisible] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<RecentFile | null>(null);
+  const [isActionSheetVisible, setIsActionSheetVisible] = useState(false);
 
   const languages = [
     { code: "en", name: "🇺🇸 English" }, { code: "pt", name: "🇵🇹 Português" }, { code: "ru", name: "🇷🇺 Русский" },
@@ -100,6 +103,35 @@ export default function Index() {
       loadRecentFilesFromFolder();
       Alert.alert(t.success || "Success", t.pdfCreated || "PDF created!");
     }
+  };
+
+  const handleRecentFileTap = (file: RecentFile) => {
+    setSelectedFile(file);
+    setIsActionSheetVisible(true);
+  };
+
+  const handleDeleteFile = async (file: RecentFile) => {
+    Alert.alert(
+      t.deletePermanently || "Delete File",
+      t.confirmDelete || "Are you sure you want to delete this file?",
+      [
+        { text: t.cancel || "Cancel", style: "cancel" },
+        { 
+          text: t.deletePermanently || "Delete", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await FileSystem.deleteAsync(file.uri, { idempotent: true });
+              await loadRecentFilesFromFolder();
+              setIsActionSheetVisible(false); // Close action sheet after deletion
+              setSelectedFile(null); // Clear selected file
+            } catch (e) {
+              console.warn("Delete failed:", e);
+            }
+          } 
+        }
+      ]
+    );
   };
 
   const handleSelectAndConvert = async (toType: "docx" | "pdf") => {
@@ -254,14 +286,13 @@ export default function Index() {
             <Text style={{ color: "#94a3b8", textAlign: 'center', marginTop: 20 }}>{t.noRecentFiles}</Text>
           ) : (
             recentFilesState.map((file) => (
-              <FileRow key={file.id} onPress={() => Alert.alert(file.name)}>
+              <FileRow key={file.id} onPress={() => handleRecentFileTap(file)}>
                 <FileRowLeft>
                   <FileThumb style={{ backgroundColor: file.name.endsWith('.pdf') ? '#FEF2F2' : '#EFF6FF' }}>
                     <Ionicons name={file.name.endsWith('.pdf') ? "document-text" : "document"} size={22} color={file.name.endsWith('.pdf') ? "#EF4444" : "#2563EB"} />
                   </FileThumb>
                   <View><Text numberOfLines={1} style={{ maxWidth: 220, fontWeight: '700', color: '#1E293B' }}>{file.name}</Text></View>
                 </FileRowLeft>
-                <Ionicons name="arrow-forward" size={16} color="#CBD5E1" />
               </FileRow>
             ))
           )}
@@ -281,14 +312,22 @@ export default function Index() {
 
       {isProcessing && (
         <LoadingOverlay>
-          <View style={{ backgroundColor: '#fff', padding: 32, borderRadius: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 15 }}>
-            <Image source={require("../../assets/images/icon.png")} style={{ width: 64, height: 64, borderRadius: 18 }} />
-            <View style={{ marginTop: 16, alignItems: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '800', color: '#1e293b' }}>{t.processing}</Text>
-              <Text style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>{t.pleaseWait || "Please wait..."}</Text>
-            </View>
-          </View>
+          <Image source={require("../../assets/images/icon.png")} style={{ width: 80, height: 80, marginBottom: 20, borderRadius: 20 }} />
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#1e293b' }}>{t.processing}</Text>
+          <Text style={{ fontSize: 14, color: '#64748b', marginTop: 8 }}>{t.pleaseWait}</Text>
         </LoadingOverlay>
+      )}
+
+      {selectedFile && (
+        <ActionBottomSheet
+          isVisible={isActionSheetVisible}
+          onClose={() => setIsActionSheetVisible(false)}
+          fileName={selectedFile.name}
+          onOpen={() => Sharing.shareAsync(selectedFile.uri)}
+          onShare={() => Sharing.shareAsync(selectedFile.uri)}
+          onDelete={() => handleDeleteFile(selectedFile)}
+          t={t}
+        />
       )}
 
       {isLimitReached && (

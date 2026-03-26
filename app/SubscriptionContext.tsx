@@ -1,7 +1,7 @@
 // app/SubscriptionContext.tsx
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Platform } from 'react-native';
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import Purchases, { PurchasesOffering, PurchasesPackage, CustomerInfo } from 'react-native-purchases';
 
 const ANALYTICS_FILE = `${FileSystem.documentDirectory}analytics.json`;
