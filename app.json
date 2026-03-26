@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PDF Imager — PDF to Image & Word",
+    "name": "PDF Imager",
     "slug": "pdf-imager",
     "version": "1.0.0",
     "scheme": "pdfimager",
@@ -43,8 +43,8 @@
       "package": "com.karoti.pdfimager",
       "versionCode": 1,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundColor": "#4F46E5"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#ffffff"
       },
       "permissions": [
         "READ_EXTERNAL_STORAGE",

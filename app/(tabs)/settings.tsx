@@ -4,6 +4,7 @@ import { View, Text, ScrollView, TouchableOpacity, Alert, Platform, Linking } fr
 import styled from "styled-components/native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useLanguage } from "../LanguageContext";
 import { useSubscription } from "../SubscriptionContext";
 
@@ -16,9 +17,19 @@ const SettingRow = styled.TouchableOpacity`flex-direction:row;align-items:center
 const IconBox = styled.View`width:40px;height:40px;border-radius:10px;align-items:center;justify-content:center;margin-right:12px;`;
 const Label = styled.Text`flex:1;font-weight:600;color:#1E293B;font-size:15px;`;
 
+const SubscriptionOverlay = styled.View`
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #fff;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  z-index: 1000;
+`;
+
 export default function Settings() {
   const { t, locale } = useLanguage();
-  const { resetAllData, restorePurchases, isSubscribed } = useSubscription();
+  const { resetAllData, restorePurchases, isSubscribed, isLimitReached } = useSubscription();
+  const router = useRouter();
 
   const handleManageSubscription = () => {
     const subUrl = Platform.OS === 'ios' 
@@ -29,11 +40,11 @@ export default function Settings() {
   };
 
   const handleFactoryReset = async () => {
-    Alert.alert(t.deleteAppData, "This will reset all app settings, history, and free trial status. This action is irreversible.", [
+    Alert.alert(t.deleteAppData, t.confirmReset, [
       { text: "Cancel", style: "cancel" },
       { text: "Delete Everything", style: "destructive", onPress: async () => {
            await resetAllData();
-           Alert.alert("Reset Complete", "The app has been reset to factory settings.");
+           Alert.alert("Reset", t.resetSuccess);
       }},
     ]);
   };
@@ -42,12 +53,12 @@ export default function Settings() {
     try {
       await restorePurchases();
       if (isSubscribed) {
-        Alert.alert("Success", "Your subscription has been restored.");
+        Alert.alert("Success", t.subRestored);
       } else {
-        Alert.alert("Restored", "No active subscription found.");
+        Alert.alert("Restored", t.noSubFound);
       }
     } catch (e) {
-      Alert.alert("Error", "Could not restore purchases.");
+      Alert.alert(t.error, t.restoreError);
     }
   };
 
@@ -111,6 +122,22 @@ export default function Settings() {
         </View>
 
       </ScrollView>
+
+      {isLimitReached && (
+        <SubscriptionOverlay>
+          <Ionicons name="settings" size={60} color="#4F46E5" style={{ marginBottom: 20, opacity: 0.1 }} />
+          <Title style={{ textAlign: 'center', marginBottom: 12 }}>{t.premiumTitle}</Title>
+          <Text style={{ textAlign: 'center', color: '#64748B', fontSize: 16, lineHeight: 24, marginBottom: 40 }}>
+            {t.unlockFeaturesContent}
+          </Text>
+          <TouchableOpacity 
+            onPress={() => router.push("/paywall" as any)}
+            style={{ backgroundColor: '#4F46E5', paddingVertical: 18, paddingHorizontal: 40, borderRadius: 20, width: '100%', alignItems: 'center', shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 15, elevation: 8 }}
+          >
+            <Text style={{ color: '#fff', fontSize: 17, fontWeight: '800' }}>{t.subscribeNow}</Text>
+          </TouchableOpacity>
+        </SubscriptionOverlay>
+      )}
     </Container>
   );
 }

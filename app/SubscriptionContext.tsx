@@ -7,8 +7,7 @@ import Purchases, { PurchasesOffering, PurchasesPackage, CustomerInfo } from 're
 const ANALYTICS_FILE = `${FileSystem.documentDirectory}analytics.json`;
 const APP_FOLDER = `${FileSystem.documentDirectory}pdfconverter/`;
 
-const REVENUECAT_ANDROID_API_KEY = 'goog_sFucqcKKJdYAYxhIzyWoQggYaVJ';
-const REVENUECAT_IOS_API_KEY = 'YOUR_IOS_API_KEY_HERE';
+import { CLOUDCONVERT_API_KEY, REVENUECAT_ANDROID_API_KEY, REVENUECAT_IOS_API_KEY } from "@env";
 
 interface SubscriptionContextType {
   isSubscribed: boolean;
@@ -39,19 +38,31 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const saveLocal = async (updates: any) => {
     try {
       const info = await FileSystem.getInfoAsync(ANALYTICS_FILE);
-      let next = { count: 0, isTrialStarted: false, isSubscribed: false, isLanguageSelected: false };
+      let draft = { count: 0, isTrialStarted: false, isSubscribed: false, isLanguageSelected: false };
+      
       if (info.exists) {
-        const current = JSON.parse(await FileSystem.readAsStringAsync(ANALYTICS_FILE));
-        next = { ...current, ...updates };
+        try {
+          const content = await FileSystem.readAsStringAsync(ANALYTICS_FILE);
+          const current = JSON.parse(content);
+          draft = { ...draft, ...current, ...updates };
+        } catch (parseError) {
+          console.error("Failed to parse analytics file, resetting:", parseError);
+          draft = { ...draft, ...updates };
+        }
       } else {
-        next = { ...next, ...updates };
+        draft = { ...draft, ...updates };
       }
-      await FileSystem.writeAsStringAsync(ANALYTICS_FILE, JSON.stringify(next));
-    } catch (e) {}
+      
+      await FileSystem.writeAsStringAsync(ANALYTICS_FILE, JSON.stringify(draft));
+      console.log("[Persistence] Saved to disk:", draft);
+    } catch (e) {
+      console.error("[Persistence] Save failed:", e);
+    }
   };
 
   const updateEntitlementStatus = useCallback(async (info: CustomerInfo) => {
     const hasPremium = info.entitlements.active['premium'] !== undefined;
+    console.log("[RevenueCat] Entitlement status:", hasPremium);
     setIsSubscribed(hasPremium);
     await saveLocal({ isSubscribed: hasPremium });
   }, []);
@@ -65,6 +76,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         const info = await FileSystem.getInfoAsync(ANALYTICS_FILE);
         if (info.exists) {
           const content = await FileSystem.readAsStringAsync(ANALYTICS_FILE);
+          console.log("[Persistence] Loaded from disk:", content);
           const data = JSON.parse(content);
           if (isMounted) {
             setConversionCount(data.count || 0);
@@ -72,6 +84,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             setIsLanguageSelected(data.isLanguageSelected || false);
             setIsSubscribed(data.isSubscribed || false);
           }
+        } else {
+          console.log("[Persistence] No analytics file found, using defaults.");
         }
 
         // 2. RevenueCat Security
@@ -120,12 +134,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const incrementCount = useCallback(async () => {
-    setConversionCount(prev => {
-      const next = prev + 1;
-      saveLocal({ count: next }); // This is called within a functional update, so we just trigger it.
-      return next;
-    });
-  }, []);
+    const next = conversionCount + 1;
+    setConversionCount(next);
+    await saveLocal({ count: next });
+  }, [conversionCount, saveLocal]);
 
   const markLanguageSelected = useCallback(async () => {
     setIsLanguageSelected(true);
@@ -152,7 +164,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
   }, [updateEntitlementStatus]);
 
-  const isLimitReached = !isSubscribed && conversionCount >= 3;
+  const isLimitReached = !isSubscribed && (conversionCount >= 3 || !isTrialStarted);
+
+  if (!isLoading) {
+    console.log(`[SubscriptionState] sub:${isSubscribed}, count:${conversionCount}, trial:${isTrialStarted}, LMT:${isLimitReached}`);
+  }
 
   const contextValue = useMemo(() => ({
     isSubscribed, conversionCount, isTrialStarted, isLanguageSelected,

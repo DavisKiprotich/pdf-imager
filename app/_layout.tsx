@@ -23,20 +23,13 @@ function RootLayoutNav() {
     );
   }
 
-  // 2. Flow: Native Splash → Language Selector → App Gated by Paywall
+  // 2. Flow: Native Splash → Language Selector → Main App (Overlay Gated Inside)
   // Gate 1: Language not selected → show language picker
   if (!sub.isLanguageSelected) {
     return <OnboardingLanguage />;
   }
 
-  // Gate 2: No trial AND not subscribed → show paywall
-  // If they HAVE started trial or ARE subscribed, they get the full app.
-  // The "3 doc cap" is handled by an overlay inside the app, not here.
-  if (!sub.isSubscribed && !sub.isTrialStarted) {
-    return <Paywall />;
-  }
-
-  // Gate 3: All clear → show the main app
+  // Gate 2: All clear → show the main app
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack screenOptions={{ headerShown: false }}>

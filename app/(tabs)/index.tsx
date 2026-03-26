@@ -79,6 +79,10 @@ export default function Index() {
 
   async function loadRecentFilesFromFolder() {
     try {
+      const dirInfo = await FileSystem.getInfoAsync(APP_PDF_FOLDER);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(APP_PDF_FOLDER, { intermediates: true });
+      }
       const names = await FileSystem.readDirectoryAsync(APP_PDF_FOLDER);
       const infos = await Promise.all(names.map(async (name: string) => {
           const uri = `${APP_PDF_FOLDER}${name}`;
@@ -86,22 +90,43 @@ export default function Index() {
           return info.exists && !info.isDirectory ? { id: name, name, uri, size: info.size, createdAt: info.modificationTime } as RecentFile : null;
       }));
       setRecentFilesState(infos.filter((f: any): f is RecentFile => f !== null).sort((a: any, b: any)=> (b.createdAt??0) - (a.createdAt??0)).slice(0, 5));
-    } catch (e) { console.warn(e); }
+    } catch (e) {
+      console.warn("loadRecentFiles error:", e);
+    }
   }
 
   const handleSelectImages = async () => {
     if (isLimitReached) return router.push("/paywall" as any);
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, quality: 1 });
-    if (!result.canceled && result.assets.length > 0) {
-      setIsProcessing(true);
-      const html = result.assets.map(a => `<img src="${a.uri}" style="width:100%; height:auto; margin-bottom:20px;" />`).join("");
-      const { uri } = await Print.printToFileAsync({ html: `<html><body>${html}</body></html>` });
-      const finalUri = `${APP_PDF_FOLDER}IMG_PDF_${Date.now()}.pdf`;
-      await FileSystem.moveAsync({ from: uri, to: finalUri });
-      await incrementCount();
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ 
+        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+        allowsMultipleSelection: true, 
+        quality: 1 
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        setIsProcessing(true);
+        
+        // 1. Ensure Folder Exists
+        const dirInfo = await FileSystem.getInfoAsync(APP_PDF_FOLDER);
+        if (!dirInfo.exists) {
+          await FileSystem.makeDirectoryAsync(APP_PDF_FOLDER, { intermediates: true });
+        }
+
+        const html = result.assets.map(a => `<img src="${a.uri}" style="width:100%; height:auto; margin-bottom:20px;" />`).join("");
+        const { uri } = await Print.printToFileAsync({ html: `<html><body>${html}</body></html>` });
+        const finalUri = `${APP_PDF_FOLDER}IMG_PDF_${Date.now()}.pdf`;
+        
+        await FileSystem.moveAsync({ from: uri, to: finalUri });
+        await incrementCount();
+        setIsProcessing(false);
+        loadRecentFilesFromFolder();
+        Alert.alert(t.success || "Success", t.pdfCreated || "PDF created!");
+      }
+    } catch (e: any) {
+      console.error("Image to PDF error:", e);
+      Alert.alert(t.error || "Error", e.message || "Failed to create PDF");
       setIsProcessing(false);
-      loadRecentFilesFromFolder();
-      Alert.alert(t.success || "Success", t.pdfCreated || "PDF created!");
     }
   };
 
@@ -136,6 +161,13 @@ export default function Index() {
 
   const handleSelectAndConvert = async (toType: "docx" | "pdf") => {
     if (isLimitReached) return router.push("/paywall" as any);
+    
+    // 0. API Secret Check
+    if (!CLOUDCONVERT_API_KEY || CLOUDCONVERT_API_KEY === "YOUR_API_KEY") {
+      Alert.alert(t.error || "Error", "CloudConvert API Key is missing. Please check your .env file.");
+      return;
+    }
+
     const pickerResult = await DocumentPicker.getDocumentAsync({ 
       type: toType === 'docx' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       copyToCacheDirectory: true 
@@ -146,13 +178,13 @@ export default function Index() {
     setIsProcessing(true);
 
     try {
-        // Ensure folder exists
+        // 1. Ensure Folder Exists
         const dirInfo = await FileSystem.getInfoAsync(APP_PDF_FOLDER);
         if (!dirInfo.exists) {
             await FileSystem.makeDirectoryAsync(APP_PDF_FOLDER, { intermediates: true });
         }
 
-        // Create CloudConvert Job
+        // 2. Create CloudConvert Job
         const jobResponse = await fetch(`${CLOUDCONVERT_API}/jobs`, {
             method: "POST",
             headers: {
@@ -177,12 +209,12 @@ export default function Index() {
 
         const job = await jobResponse.json();
         if (!job.data || !job.data.tasks) {
-            throw new Error(job.message || "Failed to create conversion job");
+            throw new Error(job.message || "Failed to create conversion job. Please check your API usage limits.");
         }
 
         const uploadTask = job.data.tasks.find((t: any) => t.name === "import-1");
         
-        // Upload file
+        // 3. Upload file
         const uploadFormData = new FormData();
         Object.keys(uploadTask.result.form.parameters).forEach(key => {
             uploadFormData.append(key, uploadTask.result.form.parameters[key]);
@@ -190,7 +222,7 @@ export default function Index() {
         
         // @ts-ignore
         uploadFormData.append("file", {
-            uri: file.uri,
+            uri: Platform.OS === 'android' ? file.uri : file.uri.replace('file://', ''),
             name: file.name,
             type: file.mimeType || (toType === "docx" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         });
@@ -200,9 +232,12 @@ export default function Index() {
             body: uploadFormData
         });
 
-        if (!uploadResponse.ok) throw new Error("File upload failed");
+        if (!uploadResponse.ok) {
+           const errText = await uploadResponse.text();
+           throw new Error(`Upload failed: ${errText.substring(0, 100)}`);
+        }
 
-        // Poll for completion
+        // 4. Poll for completion
         let status = "";
         let exportTask: any;
         let attempts = 0;
@@ -218,12 +253,15 @@ export default function Index() {
             exportTask = statusJob.data.tasks.find((t: any) => t.name === "export-1");
             status = exportTask.status;
             
-            if (status === "failed") throw new Error("Conversion failed on server");
+            if (status === "failed") {
+               const details = exportTask.message || "Unknown server error";
+               throw new Error(`Conversion failed: ${details}`);
+            }
         }
 
-        if (status !== "finished") throw new Error("Conversion timed out");
+        if (status !== "finished") throw new Error("Conversion timed out. Please try a smaller file.");
 
-        // Download result
+        // 5. Download result
         const downloadUrl = exportTask.result.files[0].url;
         const downloadName = exportTask.result.files[0].filename;
         const downloadUri = `${APP_PDF_FOLDER}${downloadName}`;
@@ -235,7 +273,11 @@ export default function Index() {
         Alert.alert(t.success || "Success", t.conversionComplete || "Conversion complete!");
     } catch (e: any) {
         console.error("Conversion error:", e);
-        Alert.alert(t.error || "Error", e.message || "An error occurred during conversion.");
+        let msg = e.message || "An error occurred during conversion.";
+        if (msg.toLowerCase().includes("conversion credits") || msg.toLowerCase().includes("limit reached")) {
+           msg = t.apiLimitReached;
+        }
+        Alert.alert(t.error || "Error", msg);
     } finally {
         setIsProcessing(false);
     }
