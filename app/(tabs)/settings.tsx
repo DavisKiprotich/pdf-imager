@@ -18,10 +18,9 @@ const Label = styled.Text`flex:1;font-weight:600;color:#1E293B;font-size:15px;`;
 
 export default function Settings() {
   const { t, locale } = useLanguage();
-  const { resetAllData } = useSubscription();
+  const { resetAllData, restorePurchases, isSubscribed } = useSubscription();
 
   const handleManageSubscription = () => {
-    // 1. Apple App Store Subscriptions
     const subUrl = Platform.OS === 'ios' 
       ? "https://apps.apple.com/account/subscriptions" 
       : "https://play.google.com/store/account/subscriptions";
@@ -39,8 +38,17 @@ export default function Settings() {
     ]);
   };
 
-  const handleRestorePurchases = () => {
-    Alert.alert(t.restorePurchases, "Attempting to restore purchases from your store account...");
+  const handleRestorePurchases = async () => {
+    try {
+      await restorePurchases();
+      if (isSubscribed) {
+        Alert.alert("Success", "Your subscription has been restored.");
+      } else {
+        Alert.alert("Restored", "No active subscription found.");
+      }
+    } catch (e) {
+      Alert.alert("Error", "Could not restore purchases.");
+    }
   };
 
   const openUrl = (url: string) => {

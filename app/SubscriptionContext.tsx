@@ -22,6 +22,7 @@ interface SubscriptionContextType {
   incrementCount: () => Promise<void>;
   markLanguageSelected: () => Promise<void>;
   resetAllData: () => Promise<void>;
+  restorePurchases: () => Promise<void>;
   isLimitReached: boolean;
 }
 
@@ -49,10 +50,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } catch (e) {}
   };
 
-  const updateEntitlementStatus = useCallback((info: CustomerInfo) => {
+  const updateEntitlementStatus = useCallback(async (info: CustomerInfo) => {
     const hasPremium = info.entitlements.active['premium'] !== undefined;
     setIsSubscribed(hasPremium);
-    saveLocal({ isSubscribed: hasPremium });
+    await saveLocal({ isSubscribed: hasPremium });
   }, []);
 
   useEffect(() => {
@@ -74,7 +75,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         }
 
         // 2. RevenueCat Security
-        // Check if Purchases is defined (native check)
         if (Purchases && typeof Purchases.configure === 'function') {
            if (Platform.OS === 'android') {
              Purchases.configure({ apiKey: REVENUECAT_ANDROID_API_KEY });
@@ -83,10 +83,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
            }
 
            const customerInfo = await Purchases.getCustomerInfo();
-           if (isMounted) updateEntitlementStatus(customerInfo);
+           if (isMounted) await updateEntitlementStatus(customerInfo);
 
-           Purchases.addCustomerInfoUpdateListener((info) => {
-             if (isMounted) updateEntitlementStatus(info);
+           Purchases.addCustomerInfoUpdateListener(async (info) => {
+             if (isMounted) await updateEntitlementStatus(info);
            });
 
            const currentOfferings = await Purchases.getOfferings();
@@ -108,7 +108,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const subscribe = useCallback(async (pkg: PurchasesPackage) => {
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
-      updateEntitlementStatus(customerInfo);
+      await updateEntitlementStatus(customerInfo);
     } catch (e: any) {
       if (!e.userCancelled) throw e;
     }
@@ -122,7 +122,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const incrementCount = useCallback(async () => {
     setConversionCount(prev => {
       const next = prev + 1;
-      saveLocal({ count: next });
+      saveLocal({ count: next }); // This is called within a functional update, so we just trigger it.
       return next;
     });
   }, []);
@@ -142,13 +142,23 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     } catch (e) {}
   }, []);
 
+  const restorePurchases = useCallback(async () => {
+    try {
+      const info = await Purchases.restorePurchases();
+      updateEntitlementStatus(info);
+    } catch (e) {
+      console.warn('Restore purchases failed:', e);
+      throw e;
+    }
+  }, [updateEntitlementStatus]);
+
   const isLimitReached = !isSubscribed && conversionCount >= 3;
 
   const contextValue = useMemo(() => ({
     isSubscribed, conversionCount, isTrialStarted, isLanguageSelected,
     isLoading, offerings, subscribe, startTrial, incrementCount,
-    markLanguageSelected, resetAllData, isLimitReached
-  }), [isSubscribed, conversionCount, isTrialStarted, isLanguageSelected, isLoading, offerings, subscribe, startTrial, incrementCount, markLanguageSelected, resetAllData, isLimitReached]);
+    markLanguageSelected, resetAllData, restorePurchases, isLimitReached
+  }), [isSubscribed, conversionCount, isTrialStarted, isLanguageSelected, isLoading, offerings, subscribe, startTrial, incrementCount, markLanguageSelected, resetAllData, restorePurchases, isLimitReached]);
 
   return (
     <SubscriptionContext.Provider value={contextValue}>
